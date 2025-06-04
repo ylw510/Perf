@@ -19,6 +19,35 @@ show_help() {
   exit 0
 }
 
+# Function to clean up on interrupt or error
+cleanup() {
+  echo
+  echo "Interrupt received, cleaning up..."
+  
+  # Remove perf.data if it exists
+  if [ -f perf.data ]; then
+    echo "Removing perf.data"
+    rm perf.data
+  fi
+  
+  # Remove output directory if it's not empty
+  if [ -d "$output_dir" ] && [ -n "$(ls -A "$output_dir" 2>/dev/null)" ]; then
+    echo "Removing all files in directory: $output_dir"
+    for file in "$output_dir"/* "$output_dir"/.[!.]*; do
+        if [ -e "$file" ]; then  # 确保文件存在（避免无匹配时误删）
+            rm "$file"
+            echo "remove: $file"
+        fi
+    done
+  fi
+
+  exit 1
+}
+
+# Trap interrupts and errors
+trap cleanup INT TERM
+
+
 # Help flag
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
   show_help
@@ -80,6 +109,12 @@ perf record -F 99 -p "$clickhouse_server_pid" -g -- sleep "$sampling_duration"
 # Run perf script (may take some time)
 echo "Generating perf.unfold... (this may take a while)"
 perf script -i perf.data &> "$output_dir/perf.unfold"
+
+perf_pid=$!  # 获取 perf script 的 PID
+trap "kill -TERM $perf_pid 2>/dev/null" INT
+wait $perf_pid
+trap - INT
+
 
 # Collapse stack traces
 echo "Collapsing stack traces..."
